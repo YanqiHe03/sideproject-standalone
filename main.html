@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The Side Project</title>
+  <link rel="icon" type="image/png" href="public/favicon.png">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #000;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    #canvas {
+      background: #fff;
+      color: #000;
+      font-family: "Menlo", "Monaco", "Consolas", "Liberation Mono", "Lucida Console", monospace;
+      font-size: 14px;
+      font-weight: bold;
+      line-height: 1.1;
+      letter-spacing: -0.05em;
+      padding: 24px;
+      overflow: hidden;
+      word-break: break-all;
+      white-space: pre-wrap;
+      cursor: crosshair;
+      user-select: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="canvas"></div>
+
+  <script>
+    // Configuration
+    const API_URL = "http://100.123.161.83:7860";
+    const TEMP = 1.5;
+    const CONTEXT = 10;
+
+    // Elements
+    const canvas = document.getElementById('canvas');
+
+    // State
+    let abortController = null;
+    let text = '';
+
+    // Resize canvas to be a centered square
+    function resizeCanvas() {
+      const size = Math.min(window.innerWidth, window.innerHeight) * 0.95;
+      canvas.style.width = size + 'px';
+      canvas.style.height = size + 'px';
+
+      // Check if content overflows after resize
+      if (canvas.scrollHeight > canvas.clientHeight) {
+        startStream();
+      }
+    }
+
+    // Check if content overflows
+    function checkOverflow() {
+      if (canvas.scrollHeight > canvas.clientHeight) {
+        startStream();
+      }
+    }
+
+    // Start streaming from API
+    async function startStream() {
+      // Abort previous request
+      if (abortController) {
+        abortController.abort();
+      }
+
+      abortController = new AbortController();
+      text = '';
+      canvas.textContent = '';
+
+      try {
+        const response = await fetch(`${API_URL}/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ temp: TEMP, context: CONTEXT }),
+          signal: abortController.signal
+        });
+
+        if (!response.ok || !response.body) {
+          throw new Error(`HTTP error: ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let isFirst = true;
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n').filter(line => line.trim());
+
+          for (const line of lines) {
+            try {
+              const data = JSON.parse(line);
+              if (data.text) {
+                if (isFirst) {
+                  text = data.text;
+                  isFirst = false;
+                } else {
+                  text += data.text;
+                }
+                canvas.textContent = text;
+                checkOverflow();
+              }
+            } catch (e) {
+              // JSON parse error, skip
+            }
+          }
+        }
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          return;
+        }
+        console.error('Stream error:', error);
+      }
+    }
+
+    // Event listeners
+    window.addEventListener('resize', resizeCanvas);
+    canvas.addEventListener('click', startStream);
+    canvas.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      startStream();
+    });
+
+    // Initialize
+    resizeCanvas();
+    startStream();
+  </script>
+</body>
+</html>
