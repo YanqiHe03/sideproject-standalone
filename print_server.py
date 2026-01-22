@@ -21,52 +21,100 @@ PRINTER_MODEL = 'QL-650TD'
 PRINTER_IDENTIFIER = 'usb://0x04f9:0x20c0'  # Update this for your system
 LABEL_WIDTH = 696  # 62mm continuous label width in pixels
 
-def get_monospace_font(font_size):
-    """Get a monospace font that works across platforms"""
+def get_font(font_size):
+    """Get a monospace font that supports multi-language (Unicode) across platforms"""
     system = platform.system()
     
-    # Try platform-specific fonts first
+    # Priority: Fonts with widest Unicode coverage
     font_paths = []
+    
+    # Best multi-language monospace fonts (need to be installed)
+    universal_fonts = [
+        # GNU Unifont - covers entire Unicode BMP (best coverage)
+        '/Library/Fonts/unifont.ttf',
+        '/Library/Fonts/unifont-*.ttf',
+        'C:/Windows/Fonts/unifont.ttf',
+        '/usr/share/fonts/truetype/unifont/unifont.ttf',
+        
+        # Noto Sans Mono - Google's universal font
+        '/Library/Fonts/NotoSansMono-Regular.ttf',
+        'C:/Windows/Fonts/NotoSansMono-Regular.ttf',
+        '/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf',
+        
+        # Sarasa Gothic (更纱黑体) - CJK + Latin
+        '/Library/Fonts/Sarasa-Mono-SC-Regular.ttf',
+        '/Library/Fonts/SarasaMonoSC-Regular.ttf',
+        'C:/Windows/Fonts/SarasaMonoSC-Regular.ttf',
+        
+        # DejaVu Sans Mono - good Latin + some symbols
+        '/Library/Fonts/DejaVuSansMono.ttf',
+        'C:/Windows/Fonts/DejaVuSansMono.ttf',
+        '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf',
+    ]
+    font_paths.extend(universal_fonts)
+    
+    # Platform-specific fallbacks (less coverage but always available)
     if system == 'Darwin':  # macOS
-        font_paths = [
+        font_paths.extend([
+            '/Library/Fonts/Arial Unicode.ttf',             # Good Unicode coverage
+            '/System/Library/Fonts/Apple Color Emoji.ttc',  # For emoji
+            '/System/Library/Fonts/PingFang.ttc',
             '/System/Library/Fonts/Monaco.dfont',
-            '/System/Library/Fonts/Menlo.ttc',
-            '/Library/Fonts/Courier New.ttf',
-        ]
+        ])
     elif system == 'Windows':
-        font_paths = [
+        font_paths.extend([
+            'C:/Windows/Fonts/seguisym.ttf',  # Segoe UI Symbol
+            'C:/Windows/Fonts/msyh.ttc',
             'C:/Windows/Fonts/consola.ttf',
-            'C:/Windows/Fonts/cour.ttf',
-        ]
+        ])
     else:  # Linux
-        font_paths = [
-            '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf',
-            '/usr/share/fonts/TTF/DejaVuSansMono.ttf',
-        ]
+        font_paths.extend([
+            '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+            '/usr/share/fonts/truetype/freefont/FreeMono.ttf',
+        ])
     
     for path in font_paths:
         try:
-            return ImageFont.truetype(path, font_size)
+            font = ImageFont.truetype(path, font_size)
+            print(f"[FONT] Using: {path}")
+            return font
         except:
             continue
     
-    # Fallback to default
+    print("[FONT] Warning: Using default font (limited Unicode support)")
     return ImageFont.load_default()
 
-def create_label_image(text, font_size=20, margin=20):
-    """Generate a label image with monospace font for Brother QL printer"""
+def create_label_image(text, font_size=32, margin=20):
+    """Generate a label image for Brother QL printer with Chinese support"""
     width = LABEL_WIDTH
     
-    # Load monospace font (cross-platform)
-    font = get_monospace_font(font_size)
+    # Load font with Chinese support (cross-platform)
+    font = get_font(font_size)
     
-    # Calculate characters per line (approximate for monospace)
-    chars_per_line = int((width - 2 * margin) / (font_size * 0.6))
-    wrapped = textwrap.fill(text, width=chars_per_line)
-    lines = wrapped.split('\n')
+    # Calculate text wrapping using actual font measurements
+    max_width = width - 2 * margin
+    lines = []
+    for paragraph in text.split('\n'):
+        if not paragraph:
+            lines.append('')
+            continue
+        current_line = ''
+        for char in paragraph:
+            test_line = current_line + char
+            # Get actual text width
+            bbox = font.getbbox(test_line)
+            text_width = bbox[2] - bbox[0] if bbox else 0
+            if text_width <= max_width:
+                current_line = test_line
+            else:
+                if current_line:
+                    lines.append(current_line)
+                current_line = char
+        if current_line:
+            lines.append(current_line)
     
     # Calculate height
-    line_height = int(font_size * 1.3)
+    line_height = int(font_size * 1.4)  # Slightly more spacing for readability
     height = len(lines) * line_height + 2 * margin
     height = max(height, 100)  # Minimum height
     
