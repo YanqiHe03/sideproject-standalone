@@ -43,7 +43,8 @@
 
   <script>
     // Configuration
-    const API_URL = "http://100.123.161.83:7860";
+    const API_URL = "http://100.123.161.83:7860";  // Backend for text generation
+    const PRINT_URL = "http://localhost:5001";     // Local print server (Mac/Linux)
     const TEMP = 1.5;
     const CONTEXT = 10;
 
@@ -54,6 +55,86 @@
     let abortController = null;
     let text = '';
     let currentDelay = 0.05; // seconds between tokens
+    let printServerAvailable = null; // null = unknown, true/false after check
+
+    // Check if print server is available
+    async function checkPrintServer() {
+      try {
+        const response = await fetch(`${PRINT_URL}/health`, { 
+          method: 'GET',
+          signal: AbortSignal.timeout(2000)
+        });
+        printServerAvailable = response.ok;
+        console.log('Print server:', printServerAvailable ? 'available' : 'not available');
+      } catch (e) {
+        printServerAvailable = false;
+        console.log('Print server: not available (will use browser print)');
+      }
+    }
+
+    // Print function - tries print_server first, falls back to browser print
+    async function printText(content) {
+      if (!content.trim()) return;
+      
+      // Try print server first (silent printing)
+      if (printServerAvailable) {
+        try {
+          const response = await fetch(`${PRINT_URL}/print`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: content }),
+            signal: AbortSignal.timeout(10000)
+          });
+          if (response.ok) {
+            console.log('Printed via print_server');
+            return;
+          }
+        } catch (e) {
+          console.error('Print server error:', e);
+        }
+      }
+      
+      // Fallback to browser print dialog
+      console.log('Using browser print dialog');
+      const printWindow = window.open('', '_blank');
+      const printContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>Print Label</title>
+          <style>
+            @page {
+              size: 62mm auto;
+              margin: 3mm;
+            }
+            body {
+              margin: 0;
+              padding: 5px;
+              font-family: "Consolas", "Monaco", monospace;
+              font-size: 12pt;
+              line-height: 1.2;
+              word-break: break-all;
+              white-space: pre-wrap;
+            }
+          </style>
+        </head>
+        <body>${content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</body>
+        </html>
+      `;
+      
+      printWindow.document.write(printContent);
+      printWindow.document.close();
+      
+      printWindow.onload = function() {
+        setTimeout(function() {
+          printWindow.print();
+          printWindow.onafterprint = function() {
+            printWindow.close();
+          };
+        }, 200);
+      };
+    }
 
     // BroadcastChannel for syncing with monitor
     const channel = new BroadcastChannel('sideproject');
@@ -87,6 +168,11 @@
 
     // Start streaming from API
     async function startStream() {
+      // Print current content before reset (if any)
+      if (text.trim()) {
+        printText(text);
+      }
+
       // Abort previous request
       if (abortController) {
         abortController.abort();
@@ -160,6 +246,7 @@
     });
 
     // Initialize
+    checkPrintServer();  // Check if print_server.py is running
     resizeCanvas();
     startStream();
   </script>

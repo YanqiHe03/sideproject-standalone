@@ -1,4 +1,4 @@
-﻿torch
+torch
 transformers
 accelerate
 fastapi
@@ -7,3 +7,6 @@ pydantic
 python-osc
 scikit-learn
 numpy
+brother_ql
+Pillow
+pyusb
