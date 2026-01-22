@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The Side Project - Probability Monitor</title>
+  <link rel="icon" type="image/png" href="public/favicon.png">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #000;
+      color: #fff;
+      font-family: "Menlo", "Monaco", "Consolas", "Liberation Mono", "Lucida Console", monospace;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    #current-token {
+      font-size: 20vw;
+      font-weight: bold;
+      letter-spacing: -0.05em;
+      min-height: 25vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.05s;
+    }
+
+    #candidates {
+      position: fixed;
+      bottom: 40px;
+      left: 0;
+      right: 0;
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      font-size: 14px;
+      opacity: 0.5;
+    }
+
+    .candidate {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .candidate-token {
+      font-weight: bold;
+    }
+
+    .candidate-prob {
+      font-size: 10px;
+      opacity: 0.7;
+    }
+
+    #status {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      font-size: 10px;
+      opacity: 0.3;
+    }
+
+    #controls {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 8px;
+      font-size: 10px;
+      opacity: 0.5;
+    }
+
+    #controls:hover {
+      opacity: 1;
+    }
+
+    #speed-slider {
+      width: 100px;
+      cursor: pointer;
+    }
+
+    /* Color invert effect for reset */
+    body.inverted {
+      background: #fff;
+      color: #000;
+    }
+  </style>
+</head>
+<body>
+  <div id="status">WAITING...</div>
+  <div id="controls">
+    <label>SPEED: <span id="speed-value">50</span>ms</label>
+    <input type="range" id="speed-slider" min="10" max="500" value="50" step="10">
+  </div>
+  <div id="current-token"></div>
+  <div id="candidates"></div>
+
+  <script>
+    // Elements
+    const tokenDisplay = document.getElementById('current-token');
+    const candidatesDisplay = document.getElementById('candidates');
+    const statusDisplay = document.getElementById('status');
+    const speedSlider = document.getElementById('speed-slider');
+    const speedValue = document.getElementById('speed-value');
+
+    // BroadcastChannel for syncing with main
+    const channel = new BroadcastChannel('sideproject');
+
+    // API URL (same as main.html)
+    const API_URL = "http://100.123.161.83:7860";
+
+    // Speed slider control - directly update backend
+    speedSlider.addEventListener('input', () => {
+      const ms = parseInt(speedSlider.value);
+      speedValue.textContent = ms;
+      
+      // Send delay directly to backend for real-time update
+      fetch(`${API_URL}/set-delay`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delay: ms / 1000 })
+      }).catch(e => console.log('Failed to set delay:', e));
+    });
+
+    // Timing
+    let lastTokenTime = 0;
+    let estimatedInterval = 100; // Initial estimate (ms)
+
+    // Queue for incoming data
+    const dataQueue = [];
+    let isAnimating = false;
+
+    // Opacity levels for candidates (index 0 = highest prob, index 4 = lowest prob)
+    const OPACITY_LEVELS = [0.9, 0.7, 0.5, 0.4, 0.3];
+
+    // Render candidates list
+    function renderCandidates(candidates) {
+      if (!candidates || candidates.length === 0) {
+        candidatesDisplay.innerHTML = '';
+        return;
+      }
+      
+      candidatesDisplay.innerHTML = candidates.map((c, i) => `
+        <div class="candidate" style="opacity: ${OPACITY_LEVELS[i] || 0.3}">
+          <span class="candidate-token">${escapeHtml(c.token) || '·'}</span>
+          <span class="candidate-prob">${(c.prob * 100).toFixed(1)}%</span>
+        </div>
+      `).join('');
+    }
+
+    // Escape HTML to prevent XSS
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Animate flicker effect: low prob → high prob → final
+    async function animateToken(data, availableTime) {
+      const { text, candidates } = data;
+      
+      if (!candidates || candidates.length === 0) {
+        // No candidates, just show the token
+        tokenDisplay.textContent = text || '·';
+        tokenDisplay.style.opacity = 1;
+        return;
+      }
+
+      // Render candidates list
+      renderCandidates(candidates);
+
+      // Sort candidates: lowest prob first (reverse order)
+      const sortedCandidates = [...candidates].reverse();
+      const numSteps = sortedCandidates.length + 1; // +1 for final token
+      const stepDuration = Math.max(20, Math.floor(availableTime * 0.8 / numSteps));
+
+      // Flicker from lowest prob to highest prob
+      for (let i = 0; i < sortedCandidates.length; i++) {
+        const candidate = sortedCandidates[i];
+        // Opacity: lower prob = dimmer (i=0 is lowest prob)
+        const opacity = OPACITY_LEVELS[sortedCandidates.length - 1 - i] || 0.3;
+        
+        tokenDisplay.textContent = candidate.token || '·';
+        tokenDisplay.style.opacity = opacity;
+        await sleep(stepDuration);
+      }
+
+      // Settle on final token
+      tokenDisplay.textContent = text || '·';
+      tokenDisplay.style.opacity = 1;
+    }
+
+    // Process queue
+    async function processQueue() {
+      if (isAnimating || dataQueue.length === 0) return;
+      
+      isAnimating = true;
+      
+      while (dataQueue.length > 0) {
+        const data = dataQueue.shift();
+        // Use estimated interval, but cap at reasonable range
+        const availableTime = Math.max(50, Math.min(500, estimatedInterval));
+        await animateToken(data, availableTime);
+      }
+      
+      isAnimating = false;
+    }
+
+    // Sleep helper
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // Color invert effect
+    function flashInvert() {
+      document.body.classList.add('inverted');
+      setTimeout(() => {
+        document.body.classList.remove('inverted');
+      }, 150);
+    }
+
+    // Listen for messages
+    channel.onmessage = (event) => {
+      const data = event.data;
+
+      // Handle reset signal
+      if (data.type === 'reset') {
+        flashInvert();
+        dataQueue.length = 0; // Clear queue
+        tokenDisplay.textContent = '?';
+        candidatesDisplay.innerHTML = '';
+        lastTokenTime = 0;
+        return;
+      }
+
+      // Handle token data
+      const now = performance.now();
+      
+      // Update timing estimate
+      if (lastTokenTime > 0) {
+        const interval = now - lastTokenTime;
+        // Smooth the estimate
+        estimatedInterval = estimatedInterval * 0.7 + interval * 0.3;
+      }
+      lastTokenTime = now;
+      
+      statusDisplay.textContent = `RECEIVING... (${Math.round(estimatedInterval)}ms)`;
+      dataQueue.push(data);
+      processQueue();
+    };
+
+    // Initial state
+    tokenDisplay.textContent = '?';
+  </script>
+</body>
+</html>

@@ -53,6 +53,18 @@
     // State
     let abortController = null;
     let text = '';
+    let currentDelay = 0.05; // seconds between tokens
+
+    // BroadcastChannel for syncing with monitor
+    const channel = new BroadcastChannel('sideproject');
+
+    // Listen for control messages from monitor
+    channel.onmessage = (event) => {
+      if (event.data.type === 'setDelay') {
+        currentDelay = event.data.value;
+        console.log('Delay updated:', currentDelay);
+      }
+    };
 
     // Resize canvas to be a centered square
     function resizeCanvas() {
@@ -84,11 +96,14 @@
       text = '';
       canvas.textContent = '';
 
+      // Notify monitor of reset
+      channel.postMessage({ type: 'reset' });
+
       try {
         const response = await fetch(`${API_URL}/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ temp: TEMP, context: CONTEXT }),
+          body: JSON.stringify({ temp: TEMP, context: CONTEXT, delay: currentDelay }),
           signal: abortController.signal
         });
 
@@ -119,6 +134,9 @@
                 }
                 canvas.textContent = text;
                 checkOverflow();
+                
+                // Broadcast to monitor
+                channel.postMessage(data);
               }
             } catch (e) {
               // JSON parse error, skip

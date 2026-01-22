@@ -2,17 +2,29 @@ import torch
 import random
 import time
 import uvicorn
+import numpy as np
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from pydantic import BaseModel
+from pythonosc import udp_client
+from sklearn.decomposition import PCA
 import json
 
 # --- Configuration ---
 MODEL_DIR = "Qwen/Qwen3-0.6B" 
 SEEDS = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-MAX_TOKENS_BEFORE_RESET = 4000 
+MAX_TOKENS_BEFORE_RESET = 4000
+
+# --- OSC Configuration ---
+OSC_TARGET_IP = "100.89.121.111"
+OSC_TARGET_PORT = 10000
+
+# --- Global State ---
+current_delay = 0.05  # seconds between tokens (can be updated via /set-delay)
+pca = None  # Will be initialized after model loading
+osc_sender = None  # Will be initialized after config 
 
 # --- Model Loading ---
 print(f"Loading Model: {MODEL_DIR}...")
@@ -28,6 +40,30 @@ try:
 except Exception as e:
     print(f"Error loading model: {e}")
 
+# --- OSC Client ---
+print(f"OSC Client targeting: {OSC_TARGET_IP}:{OSC_TARGET_PORT}")
+osc_sender = udp_client.SimpleUDPClient(OSC_TARGET_IP, OSC_TARGET_PORT)
+
+# --- PCA Calibration ---
+print("Calibrating Latent Space (PCA)...")
+calibration_sentences = [
+    "The quick brown fox jumps over the lazy dog.",
+    "Artificial intelligence is a branch of computer science.",
+    "I am a machine and I am thinking.",
+    "Logic, emotion, data, vector, tensor, matrix.",
+]
+cal_vectors = []
+with torch.no_grad():
+    for sent in calibration_sentences:
+        inputs = tokenizer(sent, return_tensors="pt")
+        outputs = model(**inputs, output_hidden_states=True)
+        hidden = outputs.hidden_states[-1].squeeze(0).cpu().float().numpy()
+        cal_vectors.append(hidden)
+all_cal_data = np.concatenate(cal_vectors, axis=0)
+pca = PCA(n_components=3)
+pca.fit(all_cal_data)
+print("PCA Calibrated.")
+
 # --- FastAPI App ---
 app = FastAPI()
 
@@ -42,6 +78,7 @@ app.add_middleware(
 class GenerateRequest(BaseModel):
     temp: float = 1.0
     context: int = 64
+    delay: float = 0.05  # seconds between tokens
     reset: bool = True 
 
 @app.post("/generate")
@@ -81,10 +118,14 @@ async def generate_endpoint(req: GenerateRequest):
                 if input_ids.shape[1] > max_ctx:
                     input_ids = input_ids[:, -max_ctx:]
                     
-                # 4. Manual Inference (Exactly as live_base_server.py)
+                # 4. Manual Inference (with hidden states for OSC)
                 with torch.no_grad(): 
-                    outputs = model(input_ids=input_ids)
+                    outputs = model(input_ids=input_ids, output_hidden_states=True)
                     next_token_logits = outputs.logits[:, -1, :]
+                    
+                    # Extract latent for OSC
+                    last_hidden = outputs.hidden_states[-1][0, -1, :].cpu().float().numpy()
+                    xyz = pca.transform([last_hidden])[0]
                     
                     # Apply Dynamic Temp
                     next_token_logits = next_token_logits / current_temp
@@ -101,24 +142,55 @@ async def generate_endpoint(req: GenerateRequest):
                     probs = torch.softmax(next_token_logits, dim=-1)
                     next_token = torch.multinomial(probs, num_samples=1)
                     
+                    # Extract Top-5 candidates
+                    top_probs, top_indices = torch.topk(probs, k=5, dim=-1)
+                    candidates = []
+                    for i in range(5):
+                        token_text = tokenizer.decode([top_indices[0, i].item()], skip_special_tokens=True)
+                        prob_value = top_probs[0, i].item()
+                        candidates.append({"token": token_text, "prob": round(prob_value, 4)})
+                    
                 # 5. Decode
                 new_text = tokenizer.decode(next_token[0], skip_special_tokens=True)
                 
-                # Yield
+                # Yield with candidates
                 current_count += 1
-                yield json.dumps({"text": new_text, "count": current_count}) + "\n"
+                yield json.dumps({
+                    "text": new_text, 
+                    "count": current_count,
+                    "candidates": candidates
+                }) + "\n"
+                
+                # Send OSC: /latent/point [text, x, y, z, index]
+                osc_sender.send_message("/latent/point", [
+                    new_text, 
+                    float(xyz[0]), 
+                    float(xyz[1]), 
+                    float(xyz[2]), 
+                    current_count
+                ])
                 
                 # 6. Update Global State (Local variable here)
                 input_ids = torch.cat([input_ids, next_token], dim=-1)
                 
-                # Speed control
-                time.sleep(0.05)
+                # Speed control (uses global delay for real-time updates)
+                time.sleep(max(0.01, min(2.0, current_delay)))
 
             except Exception as e:
                 print(f"Gen Error: {e}")
                 break
 
     return StreamingResponse(iter_generation(), media_type="application/x-ndjson")
+
+# --- Set Delay Endpoint ---
+class DelayRequest(BaseModel):
+    delay: float = 0.05
+
+@app.post("/set-delay")
+async def set_delay(req: DelayRequest):
+    global current_delay
+    current_delay = max(0.01, min(2.0, req.delay))
+    return {"status": "ok", "delay": current_delay}
 
 # --- Simple Backend Dashboard ---
 @app.get("/")

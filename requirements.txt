@@ -1,6 +1,9 @@
-torch
+﻿torch
 transformers
 accelerate
 fastapi
 uvicorn
 pydantic
+python-osc
+scikit-learn
+numpy
