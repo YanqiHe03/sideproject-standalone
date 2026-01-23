@@ -12,11 +12,39 @@ from PIL import Image, ImageDraw, ImageFont
 import textwrap
 import platform
 import os
+import threading
+import time
 
 # Get the directory where this script is located
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app = Flask(__name__)
+
+# --- Keep-Alive Thread ---
+KEEPALIVE_INTERVAL = 180  # seconds (3 minutes)
+
+def keepalive_worker():
+    """Background thread that pings the printer periodically to prevent auto-shutdown"""
+    while True:
+        time.sleep(KEEPALIVE_INTERVAL)
+        try:
+            # Just open and close connection to keep printer awake
+            import usb.core
+            # Brother QL-600 USB IDs
+            dev = usb.core.find(idVendor=0x04f9, idProduct=0x20c0)
+            if dev:
+                # Reading device info is enough to keep it awake
+                _ = dev.bDeviceClass
+                print(f"[KEEPALIVE] Pinged printer at {time.strftime('%H:%M:%S')}")
+            else:
+                print("[KEEPALIVE] Printer not found")
+        except Exception as e:
+            print(f"[KEEPALIVE] Error: {e}")
+
+# Start keepalive thread
+keepalive_thread = threading.Thread(target=keepalive_worker, daemon=True)
+keepalive_thread.start()
+print(f"[KEEPALIVE] Started (interval: {KEEPALIVE_INTERVAL}s)")
 CORS(app)  # Allow cross-origin requests from main.html
 
 # --- Printer Configuration ---
@@ -91,47 +119,63 @@ def get_font(font_size):
     print("[FONT] Warning: Using default font (limited Unicode support)")
     return ImageFont.load_default()
 
-def create_label_image(text, font_size=25, margin=20):
-    """Generate a label image for Brother QL printer with Chinese support"""
-    width = LABEL_WIDTH
+def create_label_image(text, margin=20):
+    """Generate a SQUARE label image matching main.html canvas layout"""
+    # Square dimensions (62mm x 62mm)
+    size = LABEL_WIDTH  # 696px = 62mm
     
-    # Load font with Chinese support (cross-platform)
-    font = get_font(font_size)
+    # Start with a base font size and adjust if needed to fit
+    font_size = 25
+    min_font_size = 12
     
-    # Calculate text wrapping using actual font measurements
-    max_width = width - 2 * margin
-    lines = []
-    for paragraph in text.split('\n'):
-        if not paragraph:
-            lines.append('')
-            continue
-        current_line = ''
-        for char in paragraph:
-            test_line = current_line + char
-            # Get actual text width
-            bbox = font.getbbox(test_line)
-            text_width = bbox[2] - bbox[0] if bbox else 0
-            if text_width <= max_width:
-                current_line = test_line
-            else:
-                if current_line:
-                    lines.append(current_line)
-                current_line = char
-        if current_line:
-            lines.append(current_line)
+    while font_size >= min_font_size:
+        font = get_font(font_size)
+        line_height = int(font_size * 1.4)
+        
+        # Calculate text wrapping using actual font measurements
+        max_width = size - 2 * margin
+        max_height = size - 2 * margin
+        lines = []
+        
+        for paragraph in text.split('\n'):
+            if not paragraph:
+                lines.append('')
+                continue
+            current_line = ''
+            for char in paragraph:
+                test_line = current_line + char
+                bbox = font.getbbox(test_line)
+                text_width = bbox[2] - bbox[0] if bbox else 0
+                if text_width <= max_width:
+                    current_line = test_line
+                else:
+                    if current_line:
+                        lines.append(current_line)
+                    current_line = char
+            if current_line:
+                lines.append(current_line)
+        
+        # Check if text fits in the square
+        total_height = len(lines) * line_height
+        if total_height <= max_height:
+            break  # Font size is good
+        
+        # Try smaller font
+        font_size -= 1
     
-    # Calculate height
-    line_height = int(font_size * 1.4)  # Slightly more spacing for readability
-    height = len(lines) * line_height + 2 * margin
-    height = max(height, 100)  # Minimum height
-    
-    # Create image (grayscale, white background)
-    img = Image.new('L', (width, height), 255)
+    # Create square image (grayscale, white background)
+    img = Image.new('L', (size, size), 255)
     draw = ImageDraw.Draw(img)
     
+    # Calculate vertical centering (optional - can remove if you want top-aligned)
+    total_text_height = len(lines) * line_height
+    start_y = margin  # Top-aligned like main.html
+    
     # Draw text
-    y = margin
+    y = start_y
     for line in lines:
+        if y + line_height > size - margin:
+            break  # Stop if we'd overflow
         draw.text((margin, y), line, font=font, fill=0)
         y += line_height
     
@@ -139,7 +183,7 @@ def create_label_image(text, font_size=25, margin=20):
 
 @app.route('/print', methods=['POST'])
 def print_text():
-    """Print text to Brother QL-600 label printer"""
+    """Print text to Brother QL-600 label printer (legacy endpoint)"""
     data = request.json
     text = data.get('text', '')
     
@@ -164,6 +208,52 @@ def print_text():
         import traceback
         traceback.print_exc()
         print(f"[PRINT ERROR] {type(e).__name__}: {e}")
+        return jsonify({'status': 'error', 'message': f"{type(e).__name__}: {e}"}), 500
+
+@app.route('/print-image', methods=['POST'])
+def print_image():
+    """Print a screenshot image directly - exact match to what's on screen"""
+    import base64
+    from io import BytesIO
+    
+    data = request.json
+    image_data = data.get('image', '')
+    
+    if not image_data:
+        return jsonify({'status': 'empty', 'message': 'No image data'}), 400
+    
+    try:
+        # Decode base64 image
+        # Format: "data:image/png;base64,xxxxx"
+        if ',' in image_data:
+            image_data = image_data.split(',')[1]
+        
+        image_bytes = base64.b64decode(image_data)
+        img = Image.open(BytesIO(image_bytes))
+        
+        # Convert to grayscale
+        img = img.convert('L')
+        
+        # Resize to fit 62mm width (696px) while maintaining aspect ratio
+        target_width = LABEL_WIDTH
+        aspect_ratio = img.height / img.width
+        target_height = int(target_width * aspect_ratio)
+        img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+        
+        # Convert to printer instructions
+        qlr = BrotherQLRaster(PRINTER_MODEL)
+        instructions = convert(qlr, [img], '62')
+        
+        # Send to printer
+        send(instructions, PRINTER_IDENTIFIER, 'pyusb')
+        
+        print(f"[PRINT-IMAGE] Sent {img.width}x{img.height} image to printer")
+        return jsonify({'status': 'ok', 'width': img.width, 'height': img.height})
+    
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"[PRINT-IMAGE ERROR] {type(e).__name__}: {e}")
         return jsonify({'status': 'error', 'message': f"{type(e).__name__}: {e}"}), 500
 
 @app.route('/health', methods=['GET'])

@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>The Side Project</title>
   <link rel="icon" type="image/png" href="public/favicon.png">
+  <!-- html2canvas for capturing canvas screenshot -->
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <style>
     /* Load Unifont for multi-language support */
     @font-face {
@@ -80,21 +82,30 @@
       }
     }
 
-    // Print function - tries print_server first, falls back to browser print
-    async function printText(content) {
-      if (!content.trim()) return;
+    // Print function - captures canvas screenshot and sends to print server
+    async function printCanvas() {
+      if (!text.trim()) return;
       
-      // Try print server first (silent printing)
+      // Try print server first (silent printing with screenshot)
       if (printServerAvailable) {
         try {
-          const response = await fetch(`${PRINT_URL}/print`, {
+          // Capture canvas as image
+          const screenshot = await html2canvas(canvas, {
+            backgroundColor: '#ffffff',
+            scale: 2,  // Higher resolution for better print quality
+          });
+          
+          // Convert to base64 PNG
+          const imageData = screenshot.toDataURL('image/png');
+          
+          const response = await fetch(`${PRINT_URL}/print-image`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: content }),
-            signal: AbortSignal.timeout(10000)
+            body: JSON.stringify({ image: imageData }),
+            signal: AbortSignal.timeout(15000)
           });
           if (response.ok) {
-            console.log('Printed via print_server');
+            console.log('Printed canvas screenshot via print_server');
             return;
           }
         } catch (e) {
@@ -104,44 +115,7 @@
       
       // Fallback to browser print dialog
       console.log('Using browser print dialog');
-      const printWindow = window.open('', '_blank');
-      const printContent = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="UTF-8">
-          <title>Print Label</title>
-          <style>
-            @page {
-              size: 62mm auto;
-              margin: 3mm;
-            }
-            body {
-              margin: 0;
-              padding: 5px;
-              font-family: "Consolas", "Monaco", monospace;
-              font-size: 12pt;
-              line-height: 1.2;
-              word-break: break-all;
-              white-space: pre-wrap;
-            }
-          </style>
-        </head>
-        <body>${content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</body>
-        </html>
-      `;
-      
-      printWindow.document.write(printContent);
-      printWindow.document.close();
-      
-      printWindow.onload = function() {
-        setTimeout(function() {
-          printWindow.print();
-          printWindow.onafterprint = function() {
-            printWindow.close();
-          };
-        }, 200);
-      };
+      window.print();
     }
 
     // BroadcastChannel for syncing with monitor
@@ -176,9 +150,9 @@
 
     // Start streaming from API
     async function startStream() {
-      // Print current content before reset (if any)
+      // Print current canvas before reset (if any)
       if (text.trim()) {
-        printText(text);
+        printCanvas();
       }
 
       // Abort previous request
