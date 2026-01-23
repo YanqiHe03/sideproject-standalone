@@ -11,6 +11,10 @@ from brother_ql.backends.helpers import send
 from PIL import Image, ImageDraw, ImageFont
 import textwrap
 import platform
+import os
+
+# Get the directory where this script is located
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app = Flask(__name__)
 CORS(app)  # Allow cross-origin requests from main.html
@@ -30,9 +34,12 @@ def get_font(font_size):
     
     # Best multi-language monospace fonts (need to be installed)
     universal_fonts = [
-        # GNU Unifont - covers entire Unicode BMP (best coverage)
+        # Project's own font (in public folder) - highest priority
+        os.path.join(SCRIPT_DIR, 'public', 'unifont.otf'),
+        
+        # GNU Unifont - system installed locations
         '/Users/grmdhe/Library/Fonts/unifont.otf',
-        '/Users/grmdhe/Library/Fonts/unifont-17.0.03.otf',
+        '/Library/Fonts/unifont.otf',
         'C:/Windows/Fonts/unifont.ttf',
         '/usr/share/fonts/truetype/unifont/unifont.ttf',
         
