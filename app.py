@@ -18,7 +18,7 @@ SEEDS = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 MAX_TOKENS_BEFORE_RESET = 4000
 
 # --- OSC Configuration ---
-OSC_TARGET_IP = "100.89.121.111"
+OSC_TARGET_IP = "100.82.71.91"
 OSC_TARGET_PORT = 10000
 
 # --- Global State ---
@@ -34,7 +34,7 @@ try:
         MODEL_DIR,
         trust_remote_code=True,
         torch_dtype=torch.float32,
-        device_map="cpu",
+        device_map="mps" if torch.backends.mps.is_available() else "cpu",
     )
     model.eval()
 except Exception as e:
