@@ -31,8 +31,8 @@ def get_font(font_size):
     # Best multi-language monospace fonts (need to be installed)
     universal_fonts = [
         # GNU Unifont - covers entire Unicode BMP (best coverage)
-        'Library/Fonts/unifont.ttf',
-        'Library/Fonts/unifont-17.0.03.ttf',
+        '/Users/grmdhe/Library/Fonts/unifont.otf',
+        '/Users/grmdhe/Library/Fonts/unifont-17.0.03.otf',
         'C:/Windows/Fonts/unifont.ttf',
         '/usr/share/fonts/truetype/unifont/unifont.ttf',
         
