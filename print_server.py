@@ -31,8 +31,8 @@ def get_font(font_size):
     # Best multi-language monospace fonts (need to be installed)
     universal_fonts = [
         # GNU Unifont - covers entire Unicode BMP (best coverage)
-        '/Library/Fonts/unifont.ttf',
-        '/Library/Fonts/unifont-*.ttf',
+        'Library/Fonts/unifont.ttf',
+        'Library/Fonts/unifont-17.0.03.ttf',
         'C:/Windows/Fonts/unifont.ttf',
         '/usr/share/fonts/truetype/unifont/unifont.ttf',
         
@@ -84,7 +84,7 @@ def get_font(font_size):
     print("[FONT] Warning: Using default font (limited Unicode support)")
     return ImageFont.load_default()
 
-def create_label_image(text, font_size=32, margin=20):
+def create_label_image(text, font_size=25, margin=20):
     """Generate a label image for Brother QL printer with Chinese support"""
     width = LABEL_WIDTH
     
