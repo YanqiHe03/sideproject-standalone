@@ -18,8 +18,8 @@ SEEDS = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 MAX_TOKENS_BEFORE_RESET = 4000
 
 # --- OSC Configuration ---
-OSC_TARGET_IP = "100.82.71.91"
-OSC_TARGET_PORT = 10000
+OSC_TARGET_IP = "100.89.121.111"
+OSC_TARGET_PORT = 7000
 
 # --- Device Selection (Auto-detect: MPS > CUDA > CPU) ---
 if torch.backends.mps.is_available():
@@ -33,7 +33,7 @@ else:
     print("Using CPU")
 
 # --- Global State ---
-current_delay = 0.05  # seconds between tokens (can be updated via /set-delay)
+current_delay = 0.5  # seconds between tokens (can be updated via /set-delay)
 pca = None  # Will be initialized after model loading
 osc_sender = None  # Will be initialized after config 
 
@@ -98,6 +98,9 @@ async def generate_endpoint(req: GenerateRequest):
     def iter_generation():
         # --- Exact Logic from live_base_server.py text_generator() ---
         
+        if req.reset:
+            osc_sender.send_message("/reset", 1)
+
         # 1. Initial Seed (Equivalent to state["reset_trigger"] logic)
         seed_text = random.choice(SEEDS)
         inputs = tokenizer(text=seed_text, return_tensors="pt")
@@ -118,6 +121,7 @@ async def generate_endpoint(req: GenerateRequest):
                     current_count = 0
                     
                     reset_msg = f"\n\n[AUTO-RESET: MEMORY FLUSH]\n{seed_text}"
+                    osc_sender.send_message("/reset", 1)
                     yield json.dumps({"text": reset_msg, "count": 0}) + "\n"
                     continue
 
@@ -152,6 +156,7 @@ async def generate_endpoint(req: GenerateRequest):
                     
                     probs = torch.softmax(next_token_logits, dim=-1)
                     next_token = torch.multinomial(probs, num_samples=1)
+                    final_prob = probs[0, next_token[0].item()].item()
                     
                     # Extract Top-5 candidates
                     top_probs, top_indices = torch.topk(probs, k=5, dim=-1)
@@ -169,7 +174,8 @@ async def generate_endpoint(req: GenerateRequest):
                 yield json.dumps({
                     "text": new_text, 
                     "count": current_count,
-                    "candidates": candidates
+                    "candidates": candidates,
+                    "final_prob": round(final_prob, 6)
                 }) + "\n"
                 
                 # Send OSC: /latent/point [text, x, y, z, index]
@@ -202,6 +208,15 @@ async def set_delay(req: DelayRequest):
     global current_delay
     current_delay = max(0.01, min(2.0, req.delay))
     return {"status": "ok", "delay": current_delay}
+
+# --- Reset Endpoint (OSC only) ---
+class ResetRequest(BaseModel):
+    value: int = 1
+
+@app.post("/reset")
+async def reset_endpoint(req: ResetRequest):
+    osc_sender.send_message("/reset", int(req.value))
+    return {"status": "ok", "value": int(req.value)}
 
 # --- Simple Backend Dashboard ---
 @app.get("/")

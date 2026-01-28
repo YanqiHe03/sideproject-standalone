@@ -43,7 +43,9 @@
       align-items: center;
       justify-content: center;
       transition: opacity 0.05s;
+      white-space: pre;
     }
+
 
     #candidates {
       position: fixed;
@@ -66,6 +68,7 @@
 
     .candidate-token {
       font-weight: bold;
+      white-space: pre;
     }
 
     .candidate-prob {
@@ -82,27 +85,14 @@
       display: none;
     }
 
-    #controls {
+    #meta {
       position: fixed;
       top: 20px;
       right: 20px;
-      display: flex;
-      flex-direction: column;
-      align-items: flex-end;
-      gap: 8px;
       font-size: 10px;
       opacity: 0.5;
-      display: none;
     }
 
-    #controls:hover {
-      opacity: 1;
-    }
-
-    #speed-slider {
-      width: 100px;
-      cursor: pointer;
-    }
 
     /* Color invert effect for reset */
     body.inverted {
@@ -113,10 +103,7 @@
 </head>
 <body>
   <div id="status">WAITING...</div>
-  <div id="controls">
-    <label>SPEED: <span id="speed-value">50</span>ms</label>
-    <input type="range" id="speed-slider" min="10" max="500" value="50" step="10">
-  </div>
+  <div id="meta">TEMP -- | CTX --</div>
   <div id="current-token"></div>
   <div id="candidates"></div>
 
@@ -125,27 +112,9 @@
     const tokenDisplay = document.getElementById('current-token');
     const candidatesDisplay = document.getElementById('candidates');
     const statusDisplay = document.getElementById('status');
-    const speedSlider = document.getElementById('speed-slider');
-    const speedValue = document.getElementById('speed-value');
-
+    const metaDisplay = document.getElementById('meta');
     // BroadcastChannel for syncing with main
     const channel = new BroadcastChannel('sideproject');
-
-    // API URL (same as main.html)
-    const API_URL = "http://100.123.161.83:7860";
-
-    // Speed slider control - directly update backend
-    speedSlider.addEventListener('input', () => {
-      const ms = parseInt(speedSlider.value);
-      speedValue.textContent = ms;
-      
-      // Send delay directly to backend for real-time update
-      fetch(`${API_URL}/set-delay`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ delay: ms / 1000 })
-      }).catch(e => console.log('Failed to set delay:', e));
-    });
 
     // Timing
     let lastTokenTime = 0;
@@ -154,6 +123,7 @@
     // Queue for incoming data
     const dataQueue = [];
     let isAnimating = false;
+    let streamVersion = 0;
 
     // Opacity levels for candidates (index 0 = highest prob, index 4 = lowest prob)
     const OPACITY_LEVELS = [0.9, 0.7, 0.5, 0.4, 0.3];
@@ -167,7 +137,7 @@
       
       candidatesDisplay.innerHTML = candidates.map((c, i) => `
         <div class="candidate" style="opacity: ${OPACITY_LEVELS[i] || 0.3}">
-          <span class="candidate-token">${escapeHtml(c.token) || '·'}</span>
+          <span class="candidate-token">${escapeHtml(formatToken(c.token))}</span>
           <span class="candidate-prob">${(c.prob * 100).toFixed(1)}%</span>
         </div>
       `).join('');
@@ -180,38 +150,75 @@
       return div.innerHTML;
     }
 
+    // Make whitespace tokens visible and keep layout stable
+    function formatToken(token) {
+      if (token === null || token === undefined) return '·';
+      if (token.length === 0) return '·';
+      const normalized = token.replace(/\n/g, '·');
+      if (/^\s+$/.test(normalized)) {
+        return normalized.replace(/\s/g, '·');
+      }
+      return normalized;
+    }
+
+    function formatProb(prob) {
+      if (typeof prob !== 'number' || Number.isNaN(prob)) return '';
+      return `${(prob * 100).toFixed(2)}%`;
+    }
+
+    function updateMeta(temp, context, delay) {
+      const tempText = typeof temp === 'number' ? temp.toFixed(2) : '--';
+      const ctxText = Number.isFinite(context) ? context : '--';
+      const delayText = typeof delay === 'number' ? `${Math.round(delay * 1000)}ms` : '--';
+      metaDisplay.textContent = `TEMP ${tempText} | CTX ${ctxText} | DELAY ${delayText}`;
+    }
+
     // Animate flicker effect: low prob → high prob → final
-    async function animateToken(data, availableTime) {
-      const { text, candidates } = data;
+    async function animateToken(data, availableTime, version) {
+      const { text, candidates, final_prob } = data;
+      if (version !== streamVersion) return;
+
+      const finalCandidate = {
+        token: text || '·',
+        prob: typeof final_prob === 'number' ? final_prob : 0,
+      };
+
+      const dedupedCandidates = Array.isArray(candidates)
+        ? candidates.filter((c) => c && c.token !== text)
+        : [];
+
+      const displayCandidates = [finalCandidate, ...dedupedCandidates].slice(0, 5);
       
-      if (!candidates || candidates.length === 0) {
+      if (!displayCandidates || displayCandidates.length === 0) {
         // No candidates, just show the token
-        tokenDisplay.textContent = text || '·';
+        tokenDisplay.textContent = formatToken(text);
         tokenDisplay.style.opacity = 1;
         return;
       }
 
       // Render candidates list
-      renderCandidates(candidates);
+      renderCandidates(displayCandidates);
 
       // Sort candidates: lowest prob first (reverse order)
-      const sortedCandidates = [...candidates].reverse();
+      const sortedCandidates = [...displayCandidates].reverse();
       const numSteps = sortedCandidates.length + 1; // +1 for final token
       const stepDuration = Math.max(20, Math.floor(availableTime * 0.8 / numSteps));
 
       // Flicker from lowest prob to highest prob
       for (let i = 0; i < sortedCandidates.length; i++) {
+        if (version !== streamVersion) return;
         const candidate = sortedCandidates[i];
         // Opacity: lower prob = dimmer (i=0 is lowest prob)
         const opacity = OPACITY_LEVELS[sortedCandidates.length - 1 - i] || 0.3;
         
-        tokenDisplay.textContent = candidate.token || '·';
+        tokenDisplay.textContent = formatToken(candidate.token);
         tokenDisplay.style.opacity = opacity;
         await sleep(stepDuration);
       }
 
       // Settle on final token
-      tokenDisplay.textContent = text || '·';
+      if (version !== streamVersion) return;
+      tokenDisplay.textContent = formatToken(text);
       tokenDisplay.style.opacity = 1;
     }
 
@@ -220,12 +227,14 @@
       if (isAnimating || dataQueue.length === 0) return;
       
       isAnimating = true;
+      const version = streamVersion;
       
       while (dataQueue.length > 0) {
+        if (version !== streamVersion) break;
         const data = dataQueue.shift();
         // Use estimated interval, but cap at reasonable range
         const availableTime = Math.max(50, Math.min(500, estimatedInterval));
-        await animateToken(data, availableTime);
+        await animateToken(data, availableTime, version);
       }
       
       isAnimating = false;
@@ -251,10 +260,12 @@
       // Handle reset signal
       if (data.type === 'reset') {
         flashInvert();
+        streamVersion += 1;
         dataQueue.length = 0; // Clear queue
         tokenDisplay.textContent = '?';
         candidatesDisplay.innerHTML = '';
         lastTokenTime = 0;
+        updateMeta(data.temp, data.context, data.delay);
         return;
       }
 
@@ -276,6 +287,7 @@
 
     // Initial state
     tokenDisplay.textContent = '?';
+    updateMeta();
   </script>
 </body>
 </html>
