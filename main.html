@@ -53,7 +53,7 @@
 
   <script>
     // Configuration
-    const API_URL = "http://100.123.161.83:7860";  // Backend for text generation
+    const API_URL = "http://localhost:7860";  // Backend for text generation
     const PRINT_URL = "http://localhost:5001";     // Local print server (Mac/Linux)
     const TEMP = 1.5;
     const CONTEXT = 10;
@@ -114,8 +114,8 @@
       }
       
       // Fallback to browser print dialog
-      console.log('Using browser print dialog');
-      window.print();
+      //console.log('Using browser print dialog');
+      //window.print();
     }
 
     // BroadcastChannel for syncing with monitor

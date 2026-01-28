@@ -21,6 +21,17 @@ MAX_TOKENS_BEFORE_RESET = 4000
 OSC_TARGET_IP = "100.82.71.91"
 OSC_TARGET_PORT = 10000
 
+# --- Device Selection (Auto-detect: MPS > CUDA > CPU) ---
+if torch.backends.mps.is_available():
+    DEVICE = torch.device("mps")
+    print("Using MPS (Apple Silicon GPU)")
+elif torch.cuda.is_available():
+    DEVICE = torch.device("cuda")
+    print("Using CUDA (NVIDIA GPU)")
+else:
+    DEVICE = torch.device("cpu")
+    print("Using CPU")
+
 # --- Global State ---
 current_delay = 0.05  # seconds between tokens (can be updated via /set-delay)
 pca = None  # Will be initialized after model loading
@@ -34,8 +45,7 @@ try:
         MODEL_DIR,
         trust_remote_code=True,
         torch_dtype=torch.float32,
-        device_map="mps" if torch.backends.mps.is_available() else "cpu",
-    )
+    ).to(DEVICE)
     model.eval()
 except Exception as e:
     print(f"Error loading model: {e}")
@@ -56,6 +66,7 @@ cal_vectors = []
 with torch.no_grad():
     for sent in calibration_sentences:
         inputs = tokenizer(sent, return_tensors="pt")
+        inputs = {k: v.to(DEVICE) for k, v in inputs.items()}  # Move to device
         outputs = model(**inputs, output_hidden_states=True)
         hidden = outputs.hidden_states[-1].squeeze(0).cpu().float().numpy()
         cal_vectors.append(hidden)
@@ -90,7 +101,7 @@ async def generate_endpoint(req: GenerateRequest):
         # 1. Initial Seed (Equivalent to state["reset_trigger"] logic)
         seed_text = random.choice(SEEDS)
         inputs = tokenizer(text=seed_text, return_tensors="pt")
-        input_ids = inputs.input_ids 
+        input_ids = inputs.input_ids.to(DEVICE)  # Move to device 
         
         current_count = 0
         
@@ -103,7 +114,7 @@ async def generate_endpoint(req: GenerateRequest):
                 if current_count >= MAX_TOKENS_BEFORE_RESET:
                     seed_text = random.choice(SEEDS)
                     inputs = tokenizer(text=seed_text, return_tensors="pt")
-                    input_ids = inputs.input_ids
+                    input_ids = inputs.input_ids.to(DEVICE)  # Move to device
                     current_count = 0
                     
                     reset_msg = f"\n\n[AUTO-RESET: MEMORY FLUSH]\n{seed_text}"
