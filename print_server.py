@@ -265,4 +265,4 @@ if __name__ == '__main__':
     print(f"Print Server starting...")
     print(f"Printer: {PRINTER_MODEL} at {PRINTER_IDENTIFIER}")
     print(f"Listening on http://localhost:5001")
-    app.run(host='127.0.0.1', port=5001, debug=False)
+    app.run(host='0.0.0.0', port=5001, debug=False)
