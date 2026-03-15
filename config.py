@@ -24,7 +24,7 @@ PCA_CALIBRATION_SENTENCES = [
 ]
 
 # --- OSC ---
-OSC_TARGET_IP = os.environ.get("OSC_TARGET_IP", "100.89.121.111")
+OSC_TARGET_IP = os.environ.get("OSC_TARGET_IP", "127.0.0.1")
 OSC_TARGET_PORT = int(os.environ.get("OSC_TARGET_PORT", "7000"))
 
 # --- Servers ---
