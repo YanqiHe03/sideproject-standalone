@@ -1,0 +1,76 @@
+body {
+  background: #000;
+  color: #fff;
+  font-family: "Unifont", "Menlo", "Monaco", "Consolas", monospace;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  user-select: none;
+}
+
+#current-token {
+  font-size: 20vw;
+  font-weight: bold;
+  letter-spacing: -0.05em;
+  min-height: 25vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.05s;
+  white-space: pre;
+}
+
+#candidates {
+  position: fixed;
+  bottom: 40px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  font-size: 14px;
+  opacity: 0.5;
+}
+
+.candidate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.candidate-token {
+  font-weight: bold;
+  white-space: pre;
+}
+
+.candidate-prob {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+#status {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  font-size: 10px;
+  opacity: 0.3;
+  display: none;
+}
+
+#meta {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  font-size: 10px;
+  opacity: 0.5;
+}
+
+/* Color invert effect for reset */
+body.inverted {
+  background: #fff;
+  color: #000;
+}
