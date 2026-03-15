@@ -18,7 +18,7 @@ from brother_ql.backends.helpers import send
 from PIL import Image, ImageDraw, ImageFont
 
 from config import (
-    PUBLIC_DIR, PRINTER_MODEL, PRINTER_IDENTIFIER,
+    WEB_DIR, PRINTER_MODEL, PRINTER_IDENTIFIER,
     LABEL_WIDTH, KEEPALIVE_INTERVAL, PRINT_HOST, PRINT_PORT,
 )
 
@@ -55,7 +55,7 @@ def _build_font_paths():
     """Build ordered list of font paths to try, platform-aware."""
     paths = [
         # Project bundled font — highest priority
-        os.path.join(PUBLIC_DIR, "unifont.otf"),
+        os.path.join(WEB_DIR, "unifont.otf"),
     ]
 
     system = platform.system()

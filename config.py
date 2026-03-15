@@ -7,7 +7,7 @@ import os
 
 # --- Paths ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PUBLIC_DIR = os.path.join(BASE_DIR, "public")
+WEB_DIR = os.path.join(BASE_DIR, "web")
 
 # --- Model ---
 MODEL_DIR = "Qwen/Qwen3-0.6B"
