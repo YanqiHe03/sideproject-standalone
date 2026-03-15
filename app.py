@@ -14,18 +14,21 @@ from fastapi.responses import StreamingResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from pythonosc import udp_client
+
 from config import (
     SEEDS, MAX_TOKENS_BEFORE_RESET, TOP_P,
     DEFAULT_DELAY, DELAY_RANGE, API_HOST, API_PORT,
+    OSC_TARGET_IP, OSC_TARGET_PORT,
 )
 from model import select_device, load_model, calibrate_pca
-from osc import create_osc_client
 
 # --- Initialise ---
 DEVICE = select_device()
 tokenizer, model = load_model(DEVICE)
 pca = calibrate_pca(model, tokenizer, DEVICE)
-osc_sender = create_osc_client()
+print(f"OSC Client targeting: {OSC_TARGET_IP}:{OSC_TARGET_PORT}")
+osc_sender = udp_client.SimpleUDPClient(OSC_TARGET_IP, OSC_TARGET_PORT)
 
 # --- Global State ---
 current_delay = DEFAULT_DELAY
