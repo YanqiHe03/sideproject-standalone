@@ -108,14 +108,14 @@
   <div id="current-token"></div>
   <div id="candidates"></div>
 
-  <script>
+  <script type="module">
+    import { observeDisplaySession } from './display-session.mjs';
+
     // Elements
     const tokenDisplay = document.getElementById('current-token');
     const candidatesDisplay = document.getElementById('candidates');
     const statusDisplay = document.getElementById('status');
     const metaDisplay = document.getElementById('meta');
-    // BroadcastChannel for syncing with main
-    const channel = new BroadcastChannel('sideproject');
 
     // Timing
     let lastTokenTime = 0;
@@ -124,7 +124,7 @@
     // Queue for incoming data
     const dataQueue = [];
     let isAnimating = false;
-    let streamVersion = 0;
+    let animationVersion = 0;
 
     // Opacity levels for candidates (index 0 = highest prob, index 4 = lowest prob)
     const OPACITY_LEVELS = [0.9, 0.7, 0.5, 0.4, 0.3];
@@ -177,7 +177,7 @@
     // Animate flicker effect: low prob → high prob → final
     async function animateToken(data, availableTime, version) {
       const { text, candidates, final_prob } = data;
-      if (version !== streamVersion) return;
+      if (version !== animationVersion) return;
 
       const finalCandidate = {
         token: text || '·',
@@ -207,7 +207,7 @@
 
       // Flicker from lowest prob to highest prob
       for (let i = 0; i < sortedCandidates.length; i++) {
-        if (version !== streamVersion) return;
+        if (version !== animationVersion) return;
         const candidate = sortedCandidates[i];
         // Opacity: lower prob = dimmer (i=0 is lowest prob)
         const opacity = OPACITY_LEVELS[sortedCandidates.length - 1 - i] || 0.3;
@@ -218,27 +218,26 @@
       }
 
       // Settle on final token
-      if (version !== streamVersion) return;
+      if (version !== animationVersion) return;
       tokenDisplay.textContent = formatToken(text);
       tokenDisplay.style.opacity = 1;
     }
 
-    // Process queue
+    // One animation worker; a reset cancels its old animation, then it can
+    // immediately continue with queued tokens from the new display round.
     async function processQueue() {
-      if (isAnimating || dataQueue.length === 0) return;
-      
+      if (isAnimating) return;
       isAnimating = true;
-      const version = streamVersion;
-      
-      while (dataQueue.length > 0) {
-        if (version !== streamVersion) break;
-        const data = dataQueue.shift();
-        // Use estimated interval, but cap at reasonable range
-        const availableTime = Math.max(50, Math.min(500, estimatedInterval));
-        await animateToken(data, availableTime, version);
+      try {
+        while (dataQueue.length > 0) {
+          const { data, version } = dataQueue.shift();
+          if (version !== animationVersion) continue;
+          const availableTime = Math.max(50, Math.min(500, estimatedInterval));
+          await animateToken(data, availableTime, version);
+        }
+      } finally {
+        isAnimating = false;
       }
-      
-      isAnimating = false;
     }
 
     // Sleep helper
@@ -254,37 +253,30 @@
       }, 150);
     }
 
-    // Listen for messages
-    channel.onmessage = (event) => {
-      const data = event.data;
-
-      // Handle reset signal
-      if (data.type === 'reset') {
+    observeDisplaySession({
+      onReset(settings) {
         flashInvert();
-        streamVersion += 1;
-        dataQueue.length = 0; // Clear queue
+        animationVersion += 1;
+        dataQueue.length = 0;
         tokenDisplay.textContent = '?';
+        tokenDisplay.style.opacity = 1;
         candidatesDisplay.innerHTML = '';
         lastTokenTime = 0;
-        updateMeta(data.temp, data.context, data.delay);
-        return;
-      }
-
-      // Handle token data
-      const now = performance.now();
-      
-      // Update timing estimate
-      if (lastTokenTime > 0) {
-        const interval = now - lastTokenTime;
-        // Smooth the estimate
-        estimatedInterval = estimatedInterval * 0.7 + interval * 0.3;
-      }
-      lastTokenTime = now;
-      
-      statusDisplay.textContent = `RECEIVING... (${Math.round(estimatedInterval)}ms)`;
-      dataQueue.push(data);
-      processQueue();
-    };
+        estimatedInterval = settings.delay * 1000;
+        updateMeta(settings.temp, settings.context, settings.delay);
+      },
+      onToken(data) {
+        const now = performance.now();
+        if (lastTokenTime > 0) {
+          const interval = now - lastTokenTime;
+          estimatedInterval = estimatedInterval * 0.7 + interval * 0.3;
+        }
+        lastTokenTime = now;
+        statusDisplay.textContent = `RECEIVING... (${Math.round(estimatedInterval)}ms)`;
+        dataQueue.push({ data, version: animationVersion });
+        void processQueue();
+      },
+    });
 
     // Initial state
     tokenDisplay.textContent = '?';

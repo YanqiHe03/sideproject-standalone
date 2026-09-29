@@ -44,21 +44,21 @@ In a second terminal, from the same directory:
 
 Open **[the text display](http://localhost:8080/main.html)**. Generation starts automatically; click or tap the white square to restart it.
 
-Optionally open **[the probability monitor](http://localhost:8080/monitor.html)** in another tab or window of the same browser. It shows the current token, the top five sampling candidates and their probabilities, and the stream's temperature, context length, and requested delay. Open the monitor before the display, or restart the display after opening it, so it receives the current settings.
+Optionally open **[the probability monitor](http://localhost:8080/monitor.html)** in another tab or window of the same browser. It shows the current token, the top five sampling candidates and their probabilities, and the stream's temperature, context length, and requested delay. You can open it at any time: it joins the current display round and receives its latest token and settings automatically.
 
-Both pages must use the same origin, including hostname and port, because they communicate through `BroadcastChannel`.
+Both pages must use the same origin, including hostname and port, because they communicate through `BroadcastChannel`. Use one generating display with its companion monitor windows per origin.
 
 ## Current settings
 
-These are the settings sent by `main.html`; the backend's API defaults differ.
+These are the display settings in `display-session.mjs`; the backend's API defaults differ.
 
 | Setting | Value | Where to change it |
 | --- | --- | --- |
 | Model | `Qwen/Qwen3-0.6B-Base` | `MODEL_DIR` in `app.py` |
 | Initial seed | One character from `A–Z` or `0–9` | `SEEDS` in `app.py` |
-| Sliding context | 10 tokens | `CONTEXT` in `main.html` |
-| Temperature | Random value from 0.5 to 1.5 per new stream | `TEMP_MIN`, `TEMP_MAX` in `main.html` |
-| Pause between tokens | 1.0 s at temperature 0.5; 0.1 s at temperature 1.5, interpolated linearly | `DELAY_MIN`, `DELAY_MAX`, `delayFromTemp()` in `main.html` |
+| Sliding context | 10 tokens | `CONTEXT` in `display-session.mjs` |
+| Temperature | Random value from 0.5 to 1.5 per new stream | `TEMP_MIN`, `TEMP_MAX` in `display-session.mjs` |
+| Pause between tokens | 1.0 s at temperature 0.5; 0.1 s at temperature 1.5, interpolated linearly | `DELAY_MIN`, `DELAY_MAX` in `display-session.mjs` |
 | Top-p sampling | 0.92 | Sampling loop in `app.py` |
 | Special tokens | Visible in text and candidate lists | `skip_special_tokens=False` in `app.py` |
 | Backend context reset | After 4,000 generated tokens | `MAX_TOKENS_BEFORE_RESET` in `app.py` |
@@ -87,15 +87,30 @@ pip install flask flask-cors
 python print_server.py
 ```
 
-Start the print service before opening or reloading the text display. The display checks for it at startup and, when available, sends a screenshot of the current square before each frontend restart. Screenshot capture uses `html2canvas` loaded from a CDN. Without the print service, text generation still runs and printing is skipped.
+Start the print service before opening or reloading the text display. The display checks for it at startup and, when available, freezes a copy of the previous square before clearing it. Screenshot capture and printing run in order in the background while the new display round continues. Capture uses `html2canvas` loaded from a CDN. Without the print service, text generation still runs and printing is skipped.
+
+## Changing the display
+
+- Edit `main.html` for the square's appearance, resizing, and page capture.
+- Edit `monitor.html` for candidate layout and flicker animation.
+- Edit `display-session.mjs` for display-round settings, complete-record reception, cancellation, restart ordering, and monitor synchronization.
+
+The pages use native browser modules and need no build step. To run the behavior tests, use Node.js 22 or newer:
+
+```bash
+node --test tests/*.test.mjs
+```
+
+These tests cover fragmented text, rapid restarts, overflow, late monitor joins, and page preservation without loading the model or using a printer. Project terms are defined in [CONTEXT.md](CONTEXT.md).
 
 ## Repository
 
 | File | Role |
 | --- | --- |
 | [app.py](app.py) | Local model, streaming generation, sampling, and OSC output |
-| [main.html](main.html) | Text display, temperature / delay mapping, and print requests |
+| [main.html](main.html) | Text layout, resizing, and finished-page capture / printing |
 | [monitor.html](monitor.html) | Live token and probability display |
+| [display-session.mjs](display-session.mjs) | Display-round ownership, streamed records, settings, and monitor synchronization |
 | [print_server.py](print_server.py) | Optional label printing service |
 | [TD_LATENT.toe](TD_LATENT.toe) | TouchDesigner project |
 | [public/tsp_logo.png](public/tsp_logo.png) | Project logo and browser icon |
