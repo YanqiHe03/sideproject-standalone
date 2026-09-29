@@ -13,7 +13,7 @@ from sklearn.decomposition import PCA
 import json
 
 # --- Configuration ---
-MODEL_DIR = "Qwen/Qwen3-0.6B" 
+MODEL_DIR = "Qwen/Qwen3-0.6B-Base"
 SEEDS = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 MAX_TOKENS_BEFORE_RESET = 4000
 

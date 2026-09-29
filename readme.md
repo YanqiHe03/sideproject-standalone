@@ -1,6 +1,6 @@
 # The Side Project
 
-A generative text art installation using Qwen3 0.6B base model for infinite autoregressive generation. This work serves as a mirror piece to [Complimentary Machine](https://yanqihe.com/complimentary_machine).
+A generative text art installation using [Qwen3 0.6B Base](https://huggingface.co/Qwen/Qwen3-0.6B-Base) (`Qwen/Qwen3-0.6B-Base`) for infinite autoregressive generation. This work serves as a mirror piece to [Complimentary Machine](https://yanqihe.com/complimentary_machine).
 
 ## How It Works
 
@@ -13,21 +13,31 @@ A generative text art installation using Qwen3 0.6B base model for infinite auto
 ### Backend
 
 ```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-python app.py
+HF_HOME="$PWD/cache/huggingface" python app.py
 ```
 
-The server runs on `http://localhost:7860`.
+The server runs on `http://localhost:7860`. The first run downloads the model into the ignored `cache/` directory. Later runs reuse it. On Apple Silicon, the backend uses MPS when available.
 
 ### Frontend
 
-1. Update the `API_URL` in `simple.html` if needed:
+1. Update the `API_URL` in `main.html` if needed:
 
 ```javascript
 const API_URL = "http://localhost:7860";
 ```
 
-2. Open `simple.html` in a browser
+2. In another terminal, serve this directory:
+
+```bash
+.venv/bin/python -m http.server 8080 --bind 127.0.0.1
+```
+
+3. Open [main.html](http://localhost:8080/main.html) in a browser. Optionally open [monitor.html](http://localhost:8080/monitor.html) in the same browser to see token candidates and probabilities.
+
+Generation starts from a random letter or digit, without a chat template. The current frontend uses a 10-token sliding context and picks a temperature between 0.5 and 1.5 on each reset.
 
 ## Interaction
 

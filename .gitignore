@@ -1,2 +1,4 @@
 *.[0-9]*.toe
 /cache
+.venv/
+__pycache__/
