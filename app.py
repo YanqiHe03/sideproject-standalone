@@ -162,12 +162,12 @@ async def generate_endpoint(req: GenerateRequest):
                     top_probs, top_indices = torch.topk(probs, k=5, dim=-1)
                     candidates = []
                     for i in range(5):
-                        token_text = tokenizer.decode([top_indices[0, i].item()], skip_special_tokens=True)
+                        token_text = tokenizer.decode([top_indices[0, i].item()], skip_special_tokens=False)
                         prob_value = top_probs[0, i].item()
                         candidates.append({"token": token_text, "prob": round(prob_value, 4)})
                     
                 # 5. Decode
-                new_text = tokenizer.decode(next_token[0], skip_special_tokens=True)
+                new_text = tokenizer.decode(next_token[0], skip_special_tokens=False)
                 
                 # Yield with candidates
                 current_count += 1
