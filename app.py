@@ -190,8 +190,8 @@ async def generate_endpoint(req: GenerateRequest):
                 # 6. Update Global State (Local variable here)
                 input_ids = torch.cat([input_ids, next_token], dim=-1)
                 
-                # Speed control (uses global delay for real-time updates)
-                time.sleep(max(0.01, min(2.0, current_delay)))
+                # Each stream uses the delay supplied with its generation request.
+                time.sleep(max(0.01, min(2.0, req.delay)))
 
             except Exception as e:
                 print(f"Gen Error: {e}")
